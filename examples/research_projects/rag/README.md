@@ -1,3 +1,20 @@
+# Changes
+New files:
+ - `examples/research_projects/rag/e2e.sh`
+ - `examples/research_projects/rag/subset_of_wiki_dpr.py`
+
+Updated file:
+ - `examples/research_projects/rag/eval_rag.py`
+ 1. Implemented pipeline for inference using custom data:
+    - Download and prep question-answer pairs for evaluation 
+    - Download and prep (subset and create index) wiki_dpr dataset 
+    - Run evaluation pipeline
+ 2. Modified `eval_rag.py` and `retrieval_rag.py` to print:
+    - Retrieved facts: title and text
+    - Retrieval scores
+ 
+ `./e2e.sh` runs the pipeline.
+
 # Intro
 
 Authors: @patrickvonplaten and @lhoestq

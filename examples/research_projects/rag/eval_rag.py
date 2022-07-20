@@ -106,11 +106,12 @@ def evaluate_batch_retrieval(args, rag_model, questions):
         return_tensors="pt",
     )
     all_docs = rag_model.retriever.index.get_doc_dicts(result.doc_ids)
+    all_scores = result["scores"].cpu().detach().to(torch.float32).numpy()
     provenance_strings = []
     for docs in all_docs:
-        provenance = [strip_title(title) for title in docs["title"]]
-        provenance_strings.append("\t".join(provenance))
-    return provenance_strings
+        provenance = [f"{title}: {text[:60]}..." for title, text in zip(docs["title"], docs["text"])]
+        provenance_strings.append(provenance)
+    return provenance_strings, all_scores
 
 
 def evaluate_batch_e2e(args, rag_model, questions):
@@ -132,10 +133,15 @@ def evaluate_batch_e2e(args, rag_model, questions):
             bad_words_ids=[[0, 0]],  # BART likes to repeat BOS tokens, dont allow it to generate more than one
         )
         answers = rag_model.retriever.generator_tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        retrieved_docs, all_scores = evaluate_batch_retrieval(args, rag_model, questions)
 
         if args.print_predictions:
-            for q, a in zip(questions, answers):
+            for q, a, docs, scores in zip(questions, answers, retrieved_docs, all_scores):
                 logger.info("Q: {} - A: {}".format(q, a))
+                if args.print_docs:
+                    logger.info('|--> retrieved facts (score, title, text):')
+                    for score, doc in zip(scores, docs):
+                        logger.info(f"|--> {score:3.2f} {doc}")
 
         return answers
 
@@ -154,7 +160,7 @@ def get_args():
     parser.add_argument(
         "--index_name",
         default=None,
-        choices=["exact", "compressed", "legacy"],
+        choices=["custom", "compressed", "legacy"],
         type=str,
         help="RAG model retriever type",
     )
@@ -163,6 +169,12 @@ def get_args():
         default=None,
         type=str,
         help="Path to the retrieval index",
+    )
+    parser.add_argument(
+        "--passages_path",
+        default=None,
+        type=str,
+        help="Path to the retrieval passages",
     )
     parser.add_argument("--n_docs", default=5, type=int, help="Number of retrieved docs")
     parser.add_argument(
@@ -266,6 +278,8 @@ def main(args):
             model_kwargs["index_name"] = args.index_name
         if args.index_path is not None:
             model_kwargs["index_path"] = args.index_path
+        if args.passages_path is not None:
+            model_kwargs["passages_path"] = args.passages_path
     else:
         model_class = BartForConditionalGeneration
 

@@ -175,7 +175,7 @@ class LegacyIndex(Index):
     def get_top_docs(self, question_hidden_states: np.ndarray, n_docs=5) -> Tuple[np.ndarray, np.ndarray]:
         aux_dim = np.zeros(len(question_hidden_states), dtype="float32").reshape(-1, 1)
         query_nhsw_vectors = np.hstack((question_hidden_states, aux_dim))
-        _, docs_ids = self.index.search(query_nhsw_vectors, n_docs)
+        scores, docs_ids = self.index.search(query_nhsw_vectors, n_docs)
         vectors = [[self.index.reconstruct(int(doc_id))[:-1] for doc_id in doc_ids] for doc_ids in docs_ids]
         ids = [[int(self.index_id_to_db_id[doc_id]) for doc_id in doc_ids] for doc_ids in docs_ids]
         return np.array(ids), np.array(vectors)
@@ -214,13 +214,14 @@ class HFIndexBase(Index):
         return [self.dataset[doc_ids[i].tolist()] for i in range(doc_ids.shape[0])]
 
     def get_top_docs(self, question_hidden_states: np.ndarray, n_docs=5) -> Tuple[np.ndarray, np.ndarray]:
-        _, ids = self.dataset.search_batch("embeddings", question_hidden_states, n_docs)
+        scores, ids = self.dataset.search_batch("embeddings", question_hidden_states, n_docs)
         docs = [self.dataset[[i for i in indices if i >= 0]] for indices in ids]
         vectors = [doc["embeddings"] for doc in docs]
         for i in range(len(vectors)):
             if len(vectors[i]) < n_docs:
                 vectors[i] = np.vstack([vectors[i], np.zeros((n_docs - len(vectors[i]), self.vector_size))])
-        return np.array(ids), np.array(vectors)  # shapes (batch_size, n_docs) and (batch_size, n_docs, d)
+        # shapes (batch_size, n_docs), (batch_size, n_docs, d), (batch_size, n_docs)
+        return np.array(ids), np.array(vectors), np.array(scores)
 
 
 class CanonicalHFIndex(HFIndexBase):
@@ -522,18 +523,21 @@ class RagRetriever:
         question_hidden_states_batched = self._chunk_tensor(question_hidden_states, self.batch_size)
         ids_batched = []
         vectors_batched = []
+        scores_batched = []
         for question_hidden_states in question_hidden_states_batched:
             start_time = time.time()
-            ids, vectors = self.index.get_top_docs(question_hidden_states, n_docs)
+            ids, vectors, scores = self.index.get_top_docs(question_hidden_states, n_docs)
             logger.debug(
                 f"index search time: {time.time() - start_time} sec, batch size {question_hidden_states.shape}"
             )
             ids_batched.extend(ids)
             vectors_batched.extend(vectors)
+            scores_batched.extend(scores)
         return (
             np.array(ids_batched),
             np.array(vectors_batched),
-        )  # shapes (batch_size, n_docs) and (batch_size, n_docs, d)
+            np.array(scores_batched)
+        )  # shapes (batch_size, n_docs), (batch_size, n_docs, d), (batch_size, n_docs)
 
     def retrieve(self, question_hidden_states: np.ndarray, n_docs: int) -> Tuple[np.ndarray, List[dict]]:
         """
@@ -554,8 +558,8 @@ class RagRetriever:
             - **doc_dicts** (`List[dict]`): The `retrieved_doc_embeds` examples per query.
         """
 
-        doc_ids, retrieved_doc_embeds = self._main_retrieve(question_hidden_states, n_docs)
-        return retrieved_doc_embeds, doc_ids, self.index.get_doc_dicts(doc_ids)
+        doc_ids, retrieved_doc_embeds, scores = self._main_retrieve(question_hidden_states, n_docs)
+        return retrieved_doc_embeds, doc_ids, self.index.get_doc_dicts(doc_ids), scores
 
     def set_ctx_encoder_tokenizer(self, ctx_encoder_tokenizer: PreTrainedTokenizer):
         # used in end2end retriever training
@@ -605,7 +609,7 @@ class RagRetriever:
 
         n_docs = n_docs if n_docs is not None else self.n_docs
         prefix = prefix if prefix is not None else self.config.generator.prefix
-        retrieved_doc_embeds, doc_ids, docs = self.retrieve(question_hidden_states, n_docs)
+        retrieved_doc_embeds, doc_ids, docs, scores = self.retrieve(question_hidden_states, n_docs)
 
         input_strings = self.question_encoder_tokenizer.batch_decode(question_input_ids, skip_special_tokens=True)
         context_input_ids, context_attention_mask = self.postprocess_docs(
@@ -637,6 +641,7 @@ class RagRetriever:
                     "doc_ids": doc_ids,
                     "tokenized_doc_ids": tokenized_docs["input_ids"],
                     "tokenized_doc_attention_mask": tokenized_docs["attention_mask"],
+                    "scores": scores,
                 },
                 tensor_type=return_tensors,
             )
@@ -648,6 +653,7 @@ class RagRetriever:
                     "context_attention_mask": context_attention_mask,
                     "retrieved_doc_embeds": retrieved_doc_embeds,
                     "doc_ids": doc_ids,
+                    "scores": scores,
                 },
                 tensor_type=return_tensors,
             )
