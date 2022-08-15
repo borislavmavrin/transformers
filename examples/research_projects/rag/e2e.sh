@@ -18,12 +18,12 @@ if [ ! -f "$DATA_DIR/psgs_w100.tsv.pkl" ]; then
   wget https://storage.googleapis.com/huggingface-nlp/datasets/wiki_dpr/psgs_w100.tsv.pkl -P $DATA_DIR
 fi
 
-# extract subset of the wiki_dpr dataset
+# extract subset of the wiki_dpr dataset - requires ~32GB of RAM
 python subset_of_wiki_dpr.py \
     --data_dir $DATA_DIR \
     --subset_size 100
 
-# process the subset of the wiki_dpr dataset
+## process the subset of the wiki_dpr dataset
 python use_own_knowledge_dataset.py \
     --csv_path $DATA_DIR/psgs_w100_subset.tsv \
     --output_dir $DATA_DIR/ \
