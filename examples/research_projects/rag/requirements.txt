@@ -4,5 +4,5 @@ psutil >= 5.7.0
 torch >= 1.4.0
 ray >= 1.10.0
 pytorch-lightning >= 1.5.10
-transformers
+# transformers has to be installed from git repo - see READM.md
 GitPython

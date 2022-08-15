@@ -1,4 +1,9 @@
 # Changes
+How to run:
+ 1. `cd transformers` and `pip install .`
+ 2. `cd examples/research_projects/rag/` and `pip install -r requirements.txt`
+ 3. `./e2e.sh`
+
 New files:
  - `examples/research_projects/rag/e2e.sh`
  - `examples/research_projects/rag/subset_of_wiki_dpr.py`
